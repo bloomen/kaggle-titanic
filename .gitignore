@@ -1,0 +1,13 @@
+.pydevproject
+.project
+dist
+*.pyc
+MANIFEST
+venv
+VERSION.txt
+*.csv
+*.pickle
+/zipped_data
+/model
+/build
+/.ipynb_checkpoints
