@@ -18,7 +18,7 @@ from sklearn import preprocessing
 from sklearn.metrics import accuracy_score, roc_curve, auc
 from sklearn.utils import assert_all_finite
 from sklearn.feature_selection import SelectFromModel
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 import argparse
 import pickle
@@ -70,16 +70,18 @@ class ConstantImputer(TransformerMixin):
 
     def __init__(self, column, fill_value):
         self._column = column
-        self._imputer = SimpleImputer(strategy='constant', fill_value=fill_value)
+        self.fill_value = fill_value
+        
+    def set_params(self, **params):
+        self.fill_value = params['fill_value']
 
     def transform(self, df, *_):
         assert_all_finite(df)
-        df[self._column] = self._imputer.transform(pd.DataFrame(df[self._column]))[:, 0]
+        df[self._column].fillna(self.fill_value, inplace=True)
         assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
-        self._imputer.fit(pd.DataFrame(df[self._column]))
         return self
 
 
@@ -210,10 +212,10 @@ class InteractionFeatureGenerator(TransformerMixin):
         interaction = {}
         for c0 in df:
             for c1 in df:
+                interaction['{}*{}'.format(c0, c1)] = df[c0] * df[c1]
                 if c0 != c1:
                     interaction['{}-{}'.format(c0, c1)] = df[c0] - df[c1]
-                    interaction['{}*{}'.format(c0, c1)] = df[c0] * df[c1]
-#                    interaction['{}/{}'.format(c0, c1)] = df[c0] / df[c1].replace(0, 1)
+                    interaction['{}/{}'.format(c0, c1)] = df[c0] / df[c1].replace(0, 1)
         df_interaction = pd.DataFrame(interaction)
         df_interaction.index = df.index
         df = pd.concat([df, df_interaction], axis=1)
@@ -272,6 +274,18 @@ class Scaler(TransformerMixin):
         return self
 
 
+class FareTransformer(TransformerMixin):
+
+    def transform(self, df, *_):
+        assert_all_finite(df)
+        df['Fare'] = df['Fare'] / df['family_size']
+        assert_all_finite(df)
+        return df
+
+    def fit(self, df, *_):
+        return self
+
+
 class CabinTransformer(TransformerMixin):
 
     def transform(self, df, *_):
@@ -282,10 +296,10 @@ class CabinTransformer(TransformerMixin):
             num = np.nan
             val = str(val)
             if val != 'nan':
-                decks.append(ord(val[0]))
+                decks.append(ord(val.split()[-1][0]))
                 if len(val) > 1:
                     try:
-                        num = int(val.split()[0][1:])
+                        num = int(val.split()[-1][1:])
                     except:
                         pass
             else:
@@ -330,39 +344,22 @@ class TicketTransformer(TransformerMixin):
 class NameTransformer(TransformerMixin):
 
     def __init__(self):
-        # male = 0, female = 1
-        self._titles = {
-            'Don.': 0, 
-            'Master.': 0,
-            'Rev.': 0, 
-            'Major.': 0, 
-            'Sir.': 0, 
-            'Ms.': 1, 
-            'Mlle.': 1,
-            'Col.': 1, 
-            'Jonkheer.': 0,
-            'Miss.': 1, 
-            'Mr.': 1, 
-            'Mme.': 1, 
-            'Mrs.': 1, 
-            'Countess.': 1,
-            'Dr.': 0, 
-            'Capt.': 0,
-            'Lady.': 1,
-            'Dona.': 1,
-        }
+        self._titles = ['Mr.', 'Mrs.', 'Miss.', 'Master.']
 
     def transform(self, df, *_):
         assert_all_finite(df)
-        gender = []
+        titles = []
         for val in df['Name']:
             title = 0
             for v in val.split():
                 if v[-1] == '.':
-                    title = self._titles.get(v, 1)
+                    if v in self._titles:
+                        title = v
+                    else:
+                        title = 'Rare'
                     break
-            gender.append(title)
-        df_name = pd.DataFrame(dict(name_gender=gender))
+            titles.append(title)
+        df_name = pd.DataFrame(dict(title=titles))
         df_name.index = df.index
         df = pd.concat([df, df_name], axis=1)
         df = df.drop(['Name'], axis=1)
@@ -371,6 +368,27 @@ class NameTransformer(TransformerMixin):
 
     def fit(self, df, *_):
         return self
+
+
+class FamilyTransformer(TransformerMixin):
+    
+    def transform(self, df, *_):
+        assert_all_finite(df)
+        df['family_size'] = df['SibSp'] + df['Parch'] + 1
+        df['family_group'] = df['family_size'].map(self._family_group)
+        assert_all_finite(df)
+        return df
+
+    def fit(self, df, *_):
+        return self
+
+    def _family_group(self, size):
+        if size <= 1:
+            return 'alone'
+        elif size <= 4:
+            return 'small'
+        else:
+            return 'large'
 
 
 def hist_all(df):
@@ -395,35 +413,42 @@ def bounded_log(x):
 def base_pipeline():
     return [
         ('copy_transformer', CopyTransformer()),
-        ('fare_imputer', NoiseImputer('Fare')),
+        ('family_transformer', FamilyTransformer()),
+        ('family_group_encoder', OneHotEncoder('family_group')),
+        ('fare_transformer', FareTransformer()),
+        ('fare_imputer', ConstantImputer('Fare', 40)),
         ('fare_log', ApplyFunctor('Fare', bounded_log)),
-        ('age_imputer', NoiseImputer('Age')),
+        ('age_imputer', ConstantImputer('Age', 28)),
         ('name_transformer', NameTransformer()),
+        ('title_encoder', OneHotEncoder('title')),
         ('ticket_transformer', TicketTransformer()),
         ('ticket_number_imputer', NoiseImputer('ticket_number')),
         ('ticker_number_log', ApplyFunctor('ticket_number', np.log)),
         ('cabin_transformer', CabinTransformer()),
-        ('cabin_deck_imputer', NoiseImputer('cabin_deck')),
+        ('cabin_deck_imputer', ConstantImputer('cabin_deck', 67)),
         ('cabin_number_imputer', NoiseImputer('cabin_number')),
-        ('embarked_imputer', ConstantImputer('Embarked', 'Q')),
+        ('embarked_imputer', ConstantImputer('Embarked', 'C')),
         ('embarked_encoder', OneHotEncoder('Embarked')),
         ('sex_imputer', ConstantImputer('Sex', 'male')),
         ('sex_encoder', LabelEncoder('Sex')),
-#        ('float_converter', FloatConverter()),
-#        ('scaler1', Scaler()),
+        ('float_converter', FloatConverter()),
+        ('scaler1', Scaler()),
     ]
 
 
 def train_pipeline():
     pl = base_pipeline()
     pl.extend([
-        # ('dropper', ColumnDropper(['cabin_deck', 'cabin_number', 'ticket_number'])),
-        # ('interaction', InteractionFeatureGenerator()),
-        # ('scaler2', Scaler()),
-        # ('pca', PCA(n_components=50)),
+        ('dropper', ColumnDropper(['cabin_number', 'ticket_number'])),
+#        ('interaction', InteractionFeatureGenerator()),
+#        ('scaler2', Scaler()),
+#        ('pca', PCA(n_components=13)),
+#        ('scaler3', StandardScaler()),
 #        ('model', MLPClassifier((128,), max_iter=200, learning_rate='constant', learning_rate_init=0.001, verbose=True))
-        ('model', RandomForestClassifier(n_estimators=100000)),
+#        ('model', RandomForestClassifier(n_estimators=100, max_depth=10)),
+#        ('model', SVC(gamma=1e-3, C=1e1, kernel='rbf', probability=True)),
 #        ('model', SVC(gamma=1e-3, C=1e2, kernel='rbf', probability=True)),
+        ('model', SVC(gamma=0.01, C=10, kernel='rbf', probability=True)),
     ])
     return Pipeline(pl)
 
@@ -445,8 +470,8 @@ def test_data():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--quality", help="Ensure good data quality",
-                        action="store_true")
+    parser.add_argument("--quality", help="Ensure good data quality", type=str,
+                        choices=['train', 'test'])
     parser.add_argument("--train", help="Train the model", type=str,
                         choices=['cv', 'best'])
     parser.add_argument("--evaluate", help="Evaluate the model", type=str,
@@ -461,10 +486,14 @@ def main():
         pass
 
     if args.quality:
-        X, y = train_data()
         model = Pipeline(base_pipeline())
-        X = model.fit_transform(X)
-        X = pd.concat([X, y], axis=1)
+        if args.quality == 'train':
+            X, y = train_data()
+            X = model.fit_transform(X)
+            X = pd.concat([X, y], axis=1)
+        else: # test
+            X, _ = test_data()
+            X = model.fit_transform(X)
         print('X.dtypes Start -------------')
         print(X.dtypes)
         print('X.dtypes End -------------')
@@ -501,19 +530,19 @@ def main():
         X, y = train_data()
         model = train_pipeline()
         # SVC
-        # params = {
-        #     'model__gamma': [1e-5, 1e-4, 1e-3, 1e-2],
-        #     'model__C': [1e1, 1e2, 1e3, 1e4, 1e5],
-        # }
+        params = {
+#            'model__gamma': [1e-4, 1e-3, 1e-2, 1e-1],
+#            'model__C': [1e0, 1e1, 1e2, 1e3],
+#            'pca__n_components': [10, 11, 12, 13, 14, 15],
+#            'fare_imputer__fill_value': range(0, 100, 5),
+#            'cabin_deck_imputer__fill_value': range(ord('A'), ord('T'), 1),
+#             'embarked_imputer__fill_value': ['C', 'Q', 'S'],
+        }
         # MLP
         # params = {
         #     'model__hidden_layer_sizes': range(120, 180, 10),
         #     'model__learning_rate_init': [1e-3, 1e-2, 1e-1],
         # }
-        # Forest
-        params = {
-            'model__max_depth': range(20, 40, 2)
-        }
         gridcv = GridSearchCV(model, params, verbose=2, cv=5, scoring='accuracy')
         gridcv.fit(X, y)
         print('best score =', gridcv.best_score_)
