@@ -18,7 +18,7 @@ from sklearn import preprocessing
 from sklearn.metrics import accuracy_score, roc_curve, auc
 from sklearn.utils import assert_all_finite
 from sklearn.feature_selection import SelectFromModel
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.neural_network import MLPClassifier
 import argparse
 import pickle
@@ -409,22 +409,21 @@ def base_pipeline():
         ('embarked_encoder', OneHotEncoder('Embarked')),
         ('sex_imputer', ConstantImputer('Sex', 'male')),
         ('sex_encoder', LabelEncoder('Sex')),
-        ('float_converter', FloatConverter()),
-        ('scaler1', Scaler()),
+#        ('float_converter', FloatConverter()),
+#        ('scaler1', Scaler()),
     ]
 
 
 def train_pipeline():
     pl = base_pipeline()
     pl.extend([
-        ('dropper', ColumnDropper(['cabin_deck', 'cabin_number', 'ticket_number'])),
-        ('interaction', InteractionFeatureGenerator()),
-        ('scaler2', Scaler()),
-        ('pca', PCA(n_components=50)),
+        # ('dropper', ColumnDropper(['cabin_deck', 'cabin_number', 'ticket_number'])),
+        # ('interaction', InteractionFeatureGenerator()),
+        # ('scaler2', Scaler()),
+        # ('pca', PCA(n_components=50)),
 #        ('model', MLPClassifier((128,), max_iter=200, learning_rate='constant', learning_rate_init=0.001, verbose=True))
-#        ('model', RandomForestClassifier(n_estimators=100, max_depth=10)),
-#        ('model', SVC(gamma=1e-3, C=1e1, kernel='rbf', probability=True)),
-        ('model', SVC(gamma=1e-3, C=1e2, kernel='rbf', probability=True)),
+        ('model', RandomForestClassifier(n_estimators=100000)),
+#        ('model', SVC(gamma=1e-3, C=1e2, kernel='rbf', probability=True)),
     ])
     return Pipeline(pl)
 
@@ -502,15 +501,19 @@ def main():
         X, y = train_data()
         model = train_pipeline()
         # SVC
-        params = {
-            'model__gamma': [1e-5, 1e-4, 1e-3, 1e-2],
-            'model__C': [1e1, 1e2, 1e3, 1e4, 1e5],
-        }
+        # params = {
+        #     'model__gamma': [1e-5, 1e-4, 1e-3, 1e-2],
+        #     'model__C': [1e1, 1e2, 1e3, 1e4, 1e5],
+        # }
         # MLP
         # params = {
         #     'model__hidden_layer_sizes': range(120, 180, 10),
         #     'model__learning_rate_init': [1e-3, 1e-2, 1e-1],
         # }
+        # Forest
+        params = {
+            'model__max_depth': range(20, 40, 2)
+        }
         gridcv = GridSearchCV(model, params, verbose=2, cv=5, scoring='accuracy')
         gridcv.fit(X, y)
         print('best score =', gridcv.best_score_)
