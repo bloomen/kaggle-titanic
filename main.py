@@ -8,6 +8,7 @@ from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import label
 from sklearn.linear_model.logistic import LogisticRegression
+from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import cross_validate, train_test_split, GridSearchCV
 from sklearn.svm import SVC, LinearSVC
 from sklearn.preprocessing.data import MinMaxScaler, StandardScaler, RobustScaler
@@ -28,9 +29,7 @@ np.random.seed(42)
 class CopyTransformer(TransformerMixin):
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df = pd.DataFrame(df, copy=True)
-        assert_all_finite(df)
         return df
 
     def fit(self, *_):
@@ -40,9 +39,7 @@ class CopyTransformer(TransformerMixin):
 class FloatConverter(TransformerMixin):
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df = pd.DataFrame(df, copy=True, dtype=float)
-        assert_all_finite(df)
         return df
 
     def fit(self, *_):
@@ -56,9 +53,7 @@ class MedianImputer(TransformerMixin):
         self._imputer = SimpleImputer(strategy='median')
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df[self._column] = self._imputer.transform(pd.DataFrame(df[self._column]))[:, 0]
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -76,9 +71,7 @@ class ConstantImputer(TransformerMixin):
         self.fill_value = params['fill_value']
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df[self._column].fillna(self.fill_value, inplace=True)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -93,9 +86,7 @@ class NoiseImputer(TransformerMixin):
         self._max = None
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df[self._column] = df[self._column].apply(self._random_value)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -117,13 +108,11 @@ class OneHotEncoder(TransformerMixin):
         self._encoder = preprocessing.OneHotEncoder(sparse=False)
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         onehot = self._encoder.transform(pd.DataFrame(df[self._column]))
         df_enc = pd.DataFrame(onehot, columns=[self._column + '_' + c for c in self._encoder.get_feature_names()])
         df_enc.index = df.index
         df = pd.concat([df, df_enc], axis=1, verify_integrity=True)
         df = df.drop([self._column], axis=1)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -138,9 +127,7 @@ class LabelEncoder(TransformerMixin):
         self._encoder = label.LabelEncoder()
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df[self._column] = self._encoder.transform(df[self._column])
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -154,12 +141,10 @@ class PolyFeatureGenerator(TransformerMixin):
         self._poly = PolynomialFeatures(degree=degree)
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df_poly = self._poly.transform(df)
         df_poly = pd.DataFrame(df_poly, columns=self._poly.get_feature_names())
         df_poly.index = df.index
         df = pd.concat([df, df_poly], axis=1)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -170,7 +155,6 @@ class PolyFeatureGenerator(TransformerMixin):
 class DiffFeatureGenerator(TransformerMixin):
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         diff = {}
         for c0 in df:
             for c1 in df:
@@ -179,7 +163,6 @@ class DiffFeatureGenerator(TransformerMixin):
         df_diff = pd.DataFrame(diff)
         df_diff.index = df.index
         df = pd.concat([df, df_diff], axis=1)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -189,7 +172,6 @@ class DiffFeatureGenerator(TransformerMixin):
 class FractionFeatureGenerator(TransformerMixin):
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         fraction = {}
         for c0 in df:
             for c1 in df:
@@ -198,7 +180,6 @@ class FractionFeatureGenerator(TransformerMixin):
         df_fraction = pd.DataFrame(fraction)
         df_fraction.index = df.index
         df = pd.concat([df, df_fraction], axis=1)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -233,9 +214,7 @@ class ApplyFunctor(TransformerMixin):
         self._functor = functor
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df[self._column] = df[self._column].apply(self._functor)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -248,9 +227,7 @@ class ColumnDropper(TransformerMixin):
         self._columns = columns
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df = df.drop(self._columns, axis=1)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -277,9 +254,7 @@ class Scaler(TransformerMixin):
 class FareTransformer(TransformerMixin):
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         df['Fare'] = df['Fare'] / df['family_size']
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -289,7 +264,6 @@ class FareTransformer(TransformerMixin):
 class CabinTransformer(TransformerMixin):
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         decks = []
         numbers = []
         for val in df['Cabin']:
@@ -309,7 +283,6 @@ class CabinTransformer(TransformerMixin):
         df_cabin.index = df.index
         df = pd.concat([df, df_cabin], axis=1)
         df = df.drop(['Cabin'], axis=1)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -319,7 +292,6 @@ class CabinTransformer(TransformerMixin):
 class TicketTransformer(TransformerMixin):
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         numbers = []
         for val in df['Ticket']:
             num = np.nan
@@ -334,7 +306,6 @@ class TicketTransformer(TransformerMixin):
         df_ticket.index = df.index
         df = pd.concat([df, df_ticket], axis=1)
         df = df.drop(['Ticket'], axis=1)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -347,7 +318,6 @@ class NameTransformer(TransformerMixin):
         self._titles = ['Mr.', 'Mrs.', 'Miss.', 'Master.']
 
     def transform(self, df, *_):
-        assert_all_finite(df)
         titles = []
         for val in df['Name']:
             title = 0
@@ -363,7 +333,6 @@ class NameTransformer(TransformerMixin):
         df_name.index = df.index
         df = pd.concat([df, df_name], axis=1)
         df = df.drop(['Name'], axis=1)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -373,10 +342,8 @@ class NameTransformer(TransformerMixin):
 class FamilyTransformer(TransformerMixin):
     
     def transform(self, df, *_):
-        assert_all_finite(df)
         df['family_size'] = df['SibSp'] + df['Parch'] + 1
         df['family_group'] = df['family_size'].map(self._family_group)
-        assert_all_finite(df)
         return df
 
     def fit(self, df, *_):
@@ -389,6 +356,28 @@ class FamilyTransformer(TransformerMixin):
             return 'small'
         else:
             return 'large'
+
+
+class AgeImputer(TransformerMixin):
+
+    def __init__(self):
+        self._model = LinearRegression()
+    
+    def transform(self, df, *_):
+        X = df[df['Age'].isnull()]
+        X = X.drop(['Age'], axis=1)
+        y = pd.Series(self._model.predict(X))
+        y.index = X.index
+        df.loc[y.index, 'Age'] = y
+        assert_all_finite(df)
+        return df
+
+    def fit(self, df, *_):
+        X = df[df['Age'].notnull()]
+        y = X['Age']
+        X = X.drop(['Age'], axis=1)
+        self._model.fit(X, y)
+        return self
 
 
 def hist_all(df):
@@ -418,7 +407,6 @@ def base_pipeline():
         ('fare_transformer', FareTransformer()),
         ('fare_imputer', ConstantImputer('Fare', 40)),
         ('fare_log', ApplyFunctor('Fare', bounded_log)),
-        ('age_imputer', ConstantImputer('Age', 28)),
         ('name_transformer', NameTransformer()),
         ('title_encoder', OneHotEncoder('title')),
         ('ticket_transformer', TicketTransformer()),
@@ -431,6 +419,7 @@ def base_pipeline():
         ('embarked_encoder', OneHotEncoder('Embarked')),
         ('sex_imputer', ConstantImputer('Sex', 'male')),
         ('sex_encoder', LabelEncoder('Sex')),
+        ('age_imputer', AgeImputer()),
         ('float_converter', FloatConverter()),
         ('scaler1', Scaler()),
     ]
