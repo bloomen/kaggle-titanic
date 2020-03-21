@@ -10,7 +10,7 @@ from sklearn.preprocessing import label
 from sklearn.linear_model.logistic import LogisticRegression
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import cross_validate, train_test_split, GridSearchCV
-from sklearn.svm import SVC, LinearSVC
+from sklearn.svm import SVC, LinearSVC, SVR
 from sklearn.preprocessing.data import MinMaxScaler, StandardScaler, RobustScaler
 from sklearn.preprocessing.data import PolynomialFeatures
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
@@ -362,7 +362,7 @@ class AgeImputer(TransformerMixin):
 
     def __init__(self):
         self._model = LinearRegression()
-    
+
     def transform(self, df, *_):
         X = df[df['Age'].isnull()]
         X = X.drop(['Age'], axis=1)
@@ -381,8 +381,10 @@ class AgeImputer(TransformerMixin):
 
 
 def hist_all(df):
-    for col in df:
-        plt.figure(col)
+    plt.figure("Histograms")
+    dim = int(np.sqrt(df.shape[1])) + 1
+    for i, col in enumerate(df):
+        plt.subplot(dim, dim, 1 + i)
         df[col].plot.hist(bins=20, title=col)
 
 
@@ -392,7 +394,16 @@ def corr_all(df):
     sns.heatmap(corr,
                 xticklabels=corr.columns,
                 yticklabels=corr.columns,
-                cmap=sns.diverging_palette(220, 10, as_cmap=True))
+                annot=True, fmt=".2f", cmap="coolwarm")
+
+
+def factor_all(df, ref):
+    dim = int(np.sqrt(df.shape[1])) + 1
+    for i, col in enumerate(df):
+        if col != ref and len(df[col].unique()) < 20:
+            g = sns.catplot(x=col, y=ref, data=df, kind="bar", height=6, palette="muted")
+            g.despine(left=True)
+            g = g.set_ylabels("{} Probability".format(ref))
 
 
 def bounded_log(x):
@@ -429,9 +440,9 @@ def train_pipeline():
     pl = base_pipeline()
     pl.extend([
         ('dropper', ColumnDropper(['cabin_number', 'ticket_number'])),
-#        ('interaction', InteractionFeatureGenerator()),
-#        ('scaler2', Scaler()),
-#        ('pca', PCA(n_components=13)),
+    #    ('interaction', InteractionFeatureGenerator()),
+    #    ('scaler2', Scaler()),
+    #    ('pca', PCA(n_components=50)),
 #        ('scaler3', StandardScaler()),
 #        ('model', MLPClassifier((128,), max_iter=200, learning_rate='constant', learning_rate_init=0.001, verbose=True))
 #        ('model', RandomForestClassifier(n_estimators=100, max_depth=10)),
@@ -498,6 +509,8 @@ def main():
         assert_all_finite(X)
         hist_all(X)
         corr_all(X)
+        if args.quality == 'train':
+            factor_all(X, 'Survived')
         plt.show(block=False)
         input("Press [enter] to continue.")
         return
