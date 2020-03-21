@@ -19,7 +19,7 @@ from sklearn import preprocessing
 from sklearn.metrics import accuracy_score, roc_curve, auc
 from sklearn.utils import assert_all_finite
 from sklearn.feature_selection import SelectFromModel
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.neural_network import MLPClassifier
 import argparse
 import pickle
@@ -226,6 +226,10 @@ class ColumnDropper(TransformerMixin):
     def __init__(self, columns):
         self._columns = columns
 
+    def set_params(self, **params):
+        cols = params['columns']
+        self._columns = [cols] if type(cols) == str else cols
+
     def transform(self, df, *_):
         df = df.drop(self._columns, axis=1)
         return df
@@ -400,10 +404,18 @@ def corr_all(df):
 def factor_all(df, ref):
     dim = int(np.sqrt(df.shape[1])) + 1
     for i, col in enumerate(df):
-        if col != ref and len(df[col].unique()) < 20:
-            g = sns.catplot(x=col, y=ref, data=df, kind="bar", height=6, palette="muted")
-            g.despine(left=True)
-            g = g.set_ylabels("{} Probability".format(ref))
+        if col != ref:
+            if len(df[col].unique()) < 20:
+                g = sns.catplot(x=col, y=ref, data=df, kind="bar", height=6, palette="muted")
+                g.despine(left=True)
+                g = g.set_ylabels("{} Probability".format(ref))
+            else:
+                plt.figure()
+                g = sns.kdeplot(df[col][(df["Survived"] == 0) & (df[col].notnull())], color="Red", shade=True)
+                g = sns.kdeplot(df[col][(df["Survived"] == 1) & (df[col].notnull())], ax=g, color="Blue", shade=True)
+                g.set_xlabel(col)
+                g.set_ylabel("Frequency")
+                g = g.legend(["Not Survived","Survived"])
 
 
 def bounded_log(x):
@@ -416,7 +428,7 @@ def base_pipeline():
         ('family_transformer', FamilyTransformer()),
         ('family_group_encoder', OneHotEncoder('family_group')),
         ('fare_transformer', FareTransformer()),
-        ('fare_imputer', ConstantImputer('Fare', 40)),
+        ('fare_imputer', ConstantImputer('Fare', 0)),
         ('fare_log', ApplyFunctor('Fare', bounded_log)),
         ('name_transformer', NameTransformer()),
         ('title_encoder', OneHotEncoder('title')),
@@ -424,7 +436,7 @@ def base_pipeline():
         ('ticket_number_imputer', NoiseImputer('ticket_number')),
         ('ticker_number_log', ApplyFunctor('ticket_number', np.log)),
         ('cabin_transformer', CabinTransformer()),
-        ('cabin_deck_imputer', ConstantImputer('cabin_deck', 67)),
+        ('cabin_deck_imputer', ConstantImputer('cabin_deck', 88)),
         ('cabin_number_imputer', NoiseImputer('cabin_number')),
         ('embarked_imputer', ConstantImputer('Embarked', 'C')),
         ('embarked_encoder', OneHotEncoder('Embarked')),
@@ -439,16 +451,21 @@ def base_pipeline():
 def train_pipeline():
     pl = base_pipeline()
     pl.extend([
-        ('dropper', ColumnDropper(['cabin_number', 'ticket_number'])),
-    #    ('interaction', InteractionFeatureGenerator()),
+        ('base_dropper', ColumnDropper(['title_x0_Mr.', 'family_group_x0_large', 'cabin_number'])),
+#        ('dropper', ColumnDropper([])),
+#        ('interaction', InteractionFeatureGenerator()),
     #    ('scaler2', Scaler()),
-    #    ('pca', PCA(n_components=50)),
+#        ('pca', PCA()),
 #        ('scaler3', StandardScaler()),
-#        ('model', MLPClassifier((128,), max_iter=200, learning_rate='constant', learning_rate_init=0.001, verbose=True))
-#        ('model', RandomForestClassifier(n_estimators=100, max_depth=10)),
-#        ('model', SVC(gamma=1e-3, C=1e1, kernel='rbf', probability=True)),
-#        ('model', SVC(gamma=1e-3, C=1e2, kernel='rbf', probability=True)),
-        ('model', SVC(gamma=0.01, C=10, kernel='rbf', probability=True)),
+#        ('model', VotingClassifier([
+#            ('mlp_{}'.format(i), MLPClassifier((100 + i,100 - i), max_iter=200)) for i in range(10)
+#            ('svc_rbf', SVC(gamma=0.01, C=10, kernel='rbf', probability=True)),
+#            ('svc_linear', LinearSVC(C=1)),
+#            ('lda', LinearDiscriminantAnalysis()),
+#        ], voting='soft'))
+        ('svc_rbf', SVC(gamma=0.01, C=10, kernel='rbf', probability=True)),
+#        ('svc_linear', LinearSVC(C=1)),
+#        ('lda', LinearDiscriminantAnalysis()),
     ])
     return Pipeline(pl)
 
@@ -511,6 +528,7 @@ def main():
         corr_all(X)
         if args.quality == 'train':
             factor_all(X, 'Survived')
+
         plt.show(block=False)
         input("Press [enter] to continue.")
         return
@@ -533,12 +551,18 @@ def main():
         model = train_pipeline()
         # SVC
         params = {
-#            'model__gamma': [1e-4, 1e-3, 1e-2, 1e-1],
-#            'model__C': [1e0, 1e1, 1e2, 1e3],
+#           'model__gamma': [1e-4, 1e-3, 1e-2, 1e-1],
+#           'model__C': [1e0, 1e1, 1e2, 1e3],
 #            'pca__n_components': [10, 11, 12, 13, 14, 15],
 #            'fare_imputer__fill_value': range(0, 100, 5),
 #            'cabin_deck_imputer__fill_value': range(ord('A'), ord('T'), 1),
 #             'embarked_imputer__fill_value': ['C', 'Q', 'S'],
+            'dropper__columns': ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'family_size',
+                               'family_group_x0_alone',
+                               'family_group_x0_small', 'title_x0_Master.', 'title_x0_Miss.',
+                               'title_x0_Mrs.', 'title_x0_Rare', 'ticket_number',
+                               'cabin_deck', 'Embarked_x0_C', 'Embarked_x0_Q',
+                               'Embarked_x0_S', []],
         }
         # MLP
         # params = {
@@ -556,12 +580,10 @@ def main():
         return
 
     if args.submission:
-        threshold = 0.655 # from ROC curve
         X, ids = test_data()
         with open('output/model{}.pickle'.format(args.submission), 'rb') as f:
             model = pickle.load(f)
-        y_prob = model.predict_proba(X)[:, 1]
-        y_pred = [0 if x <= threshold else 1 for x in y_prob]
+        y_pred = model.predict(X)
         y_pred = pd.DataFrame(y_pred, columns=['Survived'])
         y_pred.index = ids.index
         submission = pd.concat([ids,y_pred], axis=1)
