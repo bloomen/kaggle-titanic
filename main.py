@@ -21,6 +21,7 @@ from sklearn.utils import assert_all_finite
 from sklearn.feature_selection import SelectFromModel
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.neural_network import MLPClassifier
+from featureimpact import FeatureImpact, averaged_impact
 import argparse
 import pickle
 np.random.seed(42)
@@ -445,17 +446,35 @@ def base_pipeline():
         ('age_imputer', AgeImputer()),
         ('float_converter', FloatConverter()),
         ('scaler1', Scaler()),
+        ('base_dropper', ColumnDropper([
+            'Pclass',
+            'Age',
+            'SibSp',
+            'Parch',
+            'Fare',
+            'family_size',
+            'family_group_x0_alone',
+            'family_group_x0_small',
+            'title_x0_Miss.',
+            'title_x0_Mr.',
+            'title_x0_Mrs.',
+            'title_x0_Rare',
+            'ticket_number',
+            'cabin_deck',
+            'cabin_number',
+            'Embarked_x0_C',
+            'Embarked_x0_Q',
+            'Embarked_x0_S',
+        ])),
     ]
 
 
-def train_pipeline():
-    pl = base_pipeline()
-    pl.extend([
-        ('base_dropper', ColumnDropper(['title_x0_Mr.', 'family_group_x0_large', 'cabin_number'])),
+def top_pipeline():
+    return [
 #        ('dropper', ColumnDropper([])),
-#        ('interaction', InteractionFeatureGenerator()),
-    #    ('scaler2', Scaler()),
-#        ('pca', PCA()),
+        # ('interaction', InteractionFeatureGenerator()),
+        # ('scaler2', Scaler()),
+        # ('pca', PCA()),
 #        ('scaler3', StandardScaler()),
 #        ('model', VotingClassifier([
 #            ('mlp_{}'.format(i), MLPClassifier((100 + i,100 - i), max_iter=200)) for i in range(10)
@@ -463,10 +482,15 @@ def train_pipeline():
 #            ('svc_linear', LinearSVC(C=1)),
 #            ('lda', LinearDiscriminantAnalysis()),
 #        ], voting='soft'))
-        ('svc_rbf', SVC(gamma=0.01, C=10, kernel='rbf', probability=True)),
-#        ('svc_linear', LinearSVC(C=1)),
+        ('model', SVC(C=0.02, kernel='linear', probability=True)),
+#        ('model', SVC(gamma=1e-4, C=1, kernel='rbf', probability=True)),
 #        ('lda', LinearDiscriminantAnalysis()),
-    ])
+    ]
+
+
+def train_pipeline():
+    pl = base_pipeline()
+    pl.extend(top_pipeline())
     return Pipeline(pl)
 
 
@@ -551,18 +575,18 @@ def main():
         model = train_pipeline()
         # SVC
         params = {
-#           'model__gamma': [1e-4, 1e-3, 1e-2, 1e-1],
-#           'model__C': [1e0, 1e1, 1e2, 1e3],
+            'model__gamma': [1e-4, 1e-3, 1e-2, 1e-1],
+            'model__C': [1e0, 1e1, 1e2, 1e3],
 #            'pca__n_components': [10, 11, 12, 13, 14, 15],
 #            'fare_imputer__fill_value': range(0, 100, 5),
 #            'cabin_deck_imputer__fill_value': range(ord('A'), ord('T'), 1),
 #             'embarked_imputer__fill_value': ['C', 'Q', 'S'],
-            'dropper__columns': ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'family_size',
-                               'family_group_x0_alone',
-                               'family_group_x0_small', 'title_x0_Master.', 'title_x0_Miss.',
-                               'title_x0_Mrs.', 'title_x0_Rare', 'ticket_number',
-                               'cabin_deck', 'Embarked_x0_C', 'Embarked_x0_Q',
-                               'Embarked_x0_S', []],
+            # 'dropper__columns': ['Pclass', 'Sex', 'Age', 'SibSp', 'Parch', 'family_size',
+            #                    'family_group_x0_alone',
+            #                    'family_group_x0_small', 'title_x0_Master.', 'title_x0_Miss.',
+            #                    'title_x0_Mrs.', 'title_x0_Rare', 'ticket_number',
+            #                    'cabin_deck', 'Embarked_x0_C', 'Embarked_x0_Q',
+            #                    'Embarked_x0_S', []],
         }
         # MLP
         # params = {
@@ -591,6 +615,21 @@ def main():
         return
 
     if args.evaluate:
+        # Impact of features (uses current code)
+        X, y = train_data()
+        base = Pipeline(base_pipeline())
+        X = base.fit_transform(X)
+        model = Pipeline(top_pipeline())
+        model.fit(X, y)
+        fi = FeatureImpact()
+        fi.make_quantiles(X)
+        X, _ = test_data()
+        X = base.transform(X)
+        impact = averaged_impact(fi.compute_impact(model, X))
+        for key, imp in impact.iteritems():
+            print(key, imp)
+
+        # ROC curve (uses pre-trained model)
         X, y = train_data()
         with open('output/model{}.pickle'.format(args.evaluate), 'rb') as f:
             model = pickle.load(f)
